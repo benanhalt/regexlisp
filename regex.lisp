@@ -32,7 +32,7 @@
 
 
 (defun nfa-concat (a b)
-  (add-transition (accepting-state a) :epsilon (accepting-state b))
+  (add-transition (accepting-state a) :epsilon (start-state b))
   (make-nfa (start-state a) (accepting-state b)))
 
 (defun nfa-alternative (a b)
@@ -58,22 +58,40 @@
 
     (make-nfa start-state accepting-state)))
 
-(defun reachable-states (state input)
-  (labels ((accepts (input)
-             (lambda (transition) (or (eq input :epsilon)
-                                      (char-equal input (input transition))))))
-
-    (mapcar #'destination (remove-if-not (accepts input) (transitions state)))))
-
-;; (defun run-nfa (nfa input-string)
-;;   (loop
-;;      with states = (list (start-state nfa))
-;;      for i from 0 to (1- (length input)) do
-;;        (let ((input (elt input i)))
-;;          (setf states
-;;                (loop
-;;                   for s in states
-;;                   appending
-;;                     (mapcar #'destination (remove-if-not (accepts input) (transitions s)))))
+(defun epsilon-states (state)
+  (mapcar #'destination
+          (remove-if-not
+           (lambda (tr) (eq :epsilon (input tr)))
+           (transitions state))))
 
 
+(defun epsilon-closure (states)
+  (loop
+     with new-states = states
+     for current-states = states then (append current-states new-states)
+     do (setf new-states (remove-if (lambda (s) (member s current-states))
+                                    (mapcan #'epsilon-states new-states)))
+     until (null new-states)
+     finally (return current-states)))
+
+
+(defun follow-transitions (state input)
+  (mapcar
+   #'destination
+   (remove-if-not (lambda (tr) (equal input (input tr)))
+                  (transitions state))))
+
+(defun reachable-states (states input)
+  (epsilon-closure
+   (mapcan (lambda (state) (follow-transitions state input))
+           states)))
+
+(defun run-nfa (nfa input-string)
+  (loop
+     with states = (epsilon-closure (list (start-state nfa)))
+     for input across input-string do
+       (setf states (reachable-states states input))
+       (if (null states) (return :reject))
+     finally (return (if (member (accepting-state nfa) states)
+                         :accept
+                         :reject))))
